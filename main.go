@@ -268,7 +268,7 @@ func passwordFromPgpass(user *user.User) (p string, err error) {
 
 // display usage message
 func usage() {
-	fmt.Fprintf(os.Stderr, "usage: pg2xlsx [flags]\n")
+	fmt.Fprintf(os.Stderr, "usage: pg2txt [flags]\n")
 	flag.PrintDefaults()
 }
 
