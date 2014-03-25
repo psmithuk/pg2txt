@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"compress/gzip"
 	"database/sql"
 	"encoding/csv"
 	"flag"
@@ -17,7 +19,6 @@ import (
 var (
 	filename       string
 	outputfilename string
-	testconnection bool
 	command        string
 
 	hostname   string
@@ -41,7 +42,6 @@ func init() {
 
 	flag.StringVar(&filename, "f", "", "execute command from file (defaults to stdin)")
 	flag.StringVar(&outputfilename, "o", "", "output file")
-	flag.BoolVar(&testconnection, "t", false, "test database connection and exit")
 	flag.StringVar(&command, "c", "", "run a single command (ignores other input)")
 
 	flag.StringVar(&hostname, "h", "", "database server host")
@@ -169,7 +169,14 @@ func main() {
 		if err != nil {
 			exitWithError(fmt.Errorf("unable to create output file %s: %s", outputfilename, err))
 		}
+
 		outputfile = bufio.NewWriter(file)
+
+		if len(outputfilename) > 3 && outputfilename[len(outputfilename)-3:len(outputfilename)] == ".gz" {
+			g := gzip.NewWriter(file)
+			outputfile = bufio.NewWriter(g)
+			defer g.Close()
+		}
 	}
 
 	defer outputfile.Flush()
@@ -214,7 +221,7 @@ func StringFromPostgres(v interface{}) []byte {
 	}
 	switch v.(type) {
 	case ([]uint8):
-		return []byte(v.([]uint8))
+		return cleanBytesForDelimiters([]byte(v.([]uint8)), fielddelimiter, rowdelimiter)
 	case (bool):
 		if v.(bool) {
 			return []byte("y")
@@ -228,8 +235,47 @@ func StringFromPostgres(v interface{}) []byte {
 	case (time.Time):
 		return []byte(fmt.Sprintf("%s", v.(time.Time).Format(time.RFC3339)))
 	default:
-		return []byte(fmt.Sprintf("%s", v))
+		return cleanBytesForDelimiters([]byte(fmt.Sprintf("%s", v)), fielddelimiter, rowdelimiter)
 	}
+}
+
+// best effort to escape a field according to the various delimiters used
+func cleanBytesForDelimiters(b []byte, fielddelimiter []byte, rowdelimiter []byte) []byte {
+	v := b
+	quote := []byte{'"'}
+	quoted := false
+
+	if bytes.HasPrefix(b, quote) && bytes.HasSuffix(b, quote) {
+		quoted = true
+	}
+
+	// clean according to row delimiter
+	if bytes.Compare(rowdelimiter, []byte("\n")) == 0 {
+		// double-escape
+		v = bytes.Replace(v, []byte("\n"), []byte("\\n"), -1)
+	} else if bytes.Contains(v, rowdelimiter) && !quoted {
+		// quote
+		var buf bytes.Buffer
+		buf.Write(quote)
+		buf.Write(v)
+		buf.Write(quote)
+		v = buf.Bytes()
+	}
+
+	// clean according to field delimiter
+	if bytes.Compare(fielddelimiter, []byte("\t")) == 0 {
+		// double-escape
+		v = bytes.Replace(v, []byte("\t"), []byte("\\t"), -1)
+	} else if bytes.Contains(v, fielddelimiter) && !quoted {
+		// quote
+		var buf bytes.Buffer
+		buf.Write(quote)
+		buf.Write(v)
+		buf.Write(quote)
+		v = buf.Bytes()
+	}
+
+	return v
 }
 
 func passwordFromPgpass(user *user.User) (p string, err error) {

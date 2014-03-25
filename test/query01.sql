@@ -8,6 +8,9 @@ select
 	(1.23 + s.x)::numeric(10,2) as col_numeric,
 	('hello world ' || repeat('a',s.x) )::varchar(100) as col_string,
 	date_trunc('s', ('2010-01-01 ' || s.x+1 || ':00:00')::timestamp) as col_datetime,
-	'006012312312' || s.x as col_upc
+	'006012312312' || s.x as col_upc,
+	'ab	c' as "tabbed",
+	'ab
+c' as "newline"
 from
 	generate_Series(0,9) s(x);
